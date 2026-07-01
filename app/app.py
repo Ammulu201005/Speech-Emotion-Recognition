@@ -26,7 +26,9 @@ import sounddevice as sd
 import soundfile as sf
 import tensorflow as tf
 from faster_whisper import WhisperModel
+import moviepy as mp 
 
+from moviepy.video.io.VideoFileClip import VideoFileClip
 from utils.feature_extraction import extract_features
 from utils.timeline import analyze_timeline, plot_timeline, get_timeline_summary
 from utils.suggestions import get_suggestions
@@ -34,10 +36,8 @@ from models.intensity import TemperatureScaler
 
 from app.chatbot import (
     chat,
-    check_ollama_available,
     get_song_recos,
     maybe_speak_text,
-    gemini_available,
     tts_to_mp3_bytes,
     get_detected_text_emotion,
     reset_session,
@@ -45,7 +45,7 @@ from app.chatbot import (
 
 # ───────────────── CONFIG ─────────────────
 st.set_page_config(
-    page_title="EmotionGPT (Chat-first SER)",
+    page_title="Auralytics",
     page_icon="🎙️",
     layout="wide",
 )
@@ -273,11 +273,10 @@ def load_audio_from_url(url):
     import yt_dlp
     import os
 
-    # 1. Get the absolute path to the 'app' folder
-    # This ensures there is no confusion about relative directories
+
     app_dir = os.path.dirname(os.path.abspath(__file__))
     
-    # 2. Define the exact path to ffmpeg.exe to verify it exists
+  
     ffmpeg_exe = os.path.join(app_dir, "ffmpeg.exe")
     
     if not os.path.exists(ffmpeg_exe):
@@ -287,7 +286,6 @@ def load_audio_from_url(url):
 
     ydl_opts = {
         'format': 'bestaudio/best',
-        # Construct the options to be very specific
         'ffmpeg_location': ffmpeg_exe, 
         'outtmpl': temp_audio.replace(".wav", ".%(ext)s"),
         'quiet': True,
@@ -345,6 +343,13 @@ if "ollama_model" not in st.session_state:
 if "chat_input_mode" not in st.session_state:
     st.session_state.chat_input_mode = "text"
 
+# ───────────────── LOGIN STATE ─────────────────
+if "logged_in" not in st.session_state:
+    st.session_state.logged_in = False
+
+if "username" not in st.session_state:
+    st.session_state.username = ""
+
 
 
 
@@ -357,33 +362,61 @@ if model is None:
     st.stop()
 
 
+# ───────────────── LOGIN PAGE ─────────────────
+if not st.session_state.logged_in:
+    st.markdown("""
+    <div style='text-align:center; margin-top:100px'>
+        <h1>🎙️ auralytics</h1>
+        <p>Decode emotions hidden in your speech</p>
+    </div>
+    """, unsafe_allow_html=True)
+
+    username_input = st.text_input("Enter your name 👇")
+
+    if st.button("Start"):
+        if username_input.strip() != "":
+            st.session_state.username = username_input.strip()
+            st.session_state.logged_in = True
+            st.rerun()
+        else:
+            st.warning("Please enter your name")
+
+    st.stop()  
+
 # ───────────────── SIDEBAR (ANALYSIS PANEL) ─────────────────
 with st.sidebar:
-    st.title("EmotionGPT 🤖")
+    st.title("Auralytics 🤖")
+    st.markdown("Decoding the emotional intelligence hidden in human speech")
     st.markdown("---")
+    st.markdown(f"👤 Logged in as: **{st.session_state.username}**")
 
-    st.markdown(f"**SER Model:** {'✅ Loaded' if os.path.exists(MODEL_PATH) else '❌ Missing'}")
+    if st.button("🚪 Logout"):
+        st.session_state.logged_in = False
+        st.session_state.username = ""
+        st.rerun()
 
-    # AI model status
-    if gemini_available():
-        st.markdown("**AI Model:** 🤖 Gemini API Configured")
-    elif check_ollama_available(st.session_state.ollama_model):
-        st.markdown("**AI Model:** 🧠 Ollama Connected")
-    else:
-        st.markdown("**AI Model:** ⚠️ Using Rule-Based Chat")
+    # st.markdown(f"**SER Model:** {'✅ Loaded' if os.path.exists(MODEL_PATH) else '❌ Missing'}")
 
+    # # AI model status
+    # if gemini_available():
+    #     st.markdown("**AI Model:** 🤖 Gemini API Configured")
+    # elif check_ollama_available(st.session_state.ollama_model):
+    #     st.markdown("**AI Model:** 🧠 Ollama Connected")
+    # else:
+    #     st.markdown("**AI Model:** ⚠️ Using Rule-Based Chat")
+
+    # st.markdown("---")
+
+    # st.session_state.ollama_model = st.text_input(
+    #     "Ollama Model",
+    #     st.session_state.ollama_model
+    # )
     st.markdown("---")
-
-    st.session_state.ollama_model = st.text_input(
-        "Ollama Model",
-        st.session_state.ollama_model
-    )
-
     st.session_state.voice_reply = st.toggle(
         "🔊 Bot voice reply",
         value=st.session_state.voice_reply
     )
-
+    
     st.caption("Browser voice uses gTTS. Offline local voice uses pyttsx3 if installed.")
 
     st.markdown("---")
@@ -409,7 +442,7 @@ with st.sidebar:
             unsafe_allow_html=True
         )
 
-        # 🎵 SONGS
+        #  SONGS
         st.markdown("---")
         st.markdown("### 🎵 Song Recommendations")
 
@@ -421,23 +454,23 @@ with st.sidebar:
         else:
             st.info("No songs yet — send voice/audio 🎧")
 
-        # 📊 Timeline (only for audio)
+        #  Timeline (only for audio)
         if fig:
             st.markdown("---")
-            st.markdown("### 📊 Emotion Timeline")
+            st.markdown("### Emotion Timeline")
             st.plotly_chart(fig, use_container_width=True)
 
-        # 💡 Suggestions
+        #  Suggestions
         if suggestions:
             st.markdown("---")
-            st.markdown("### 💡 Suggestions")
+            st.markdown("###  Suggestions")
             for tip in suggestions[:6]:
                 st.markdown(
                     f"<div class='suggestion-item'>{tip}</div>",
                     unsafe_allow_html=True
                 )
 
-        # 📈 Metrics
+        #  Metrics
         if summary:
             st.markdown("---")
             c1, c2, c3 = st.columns(3)
@@ -459,7 +492,7 @@ with tab_chat:
     if len(st.session_state.chat_history) == 0:
         st.session_state.chat_history.append({
             "role": "assistant",
-            "content": "Hii Vaishu 💛 How are you yaar? Come on, tell me what’s going on with you today?"
+            "content": f"Hii {st.session_state.username} 💛 How are you yaar? Come on, tell me what’s going on with you today?"
         })
 
     # Create/update context based on latest SER if present
@@ -493,7 +526,7 @@ with tab_chat:
     if only_greeting_present:
         st.markdown("""
         <div class="center-hero">
-          <h1>EmotionGPT</h1>
+          <h1>Auralytics</h1>
           <p>Ready for you all the time and I am listening.</p>
         </div>
         """, unsafe_allow_html=True)
@@ -521,233 +554,203 @@ with tab_chat:
 
     # Always show chat history first
     for msg in st.session_state.chat_history:
-        role_class = "chat-user" if msg["role"] == "user" else "chat-bot"
-        prefix = "You" if msg["role"] == "user" else "Bot"
-        st.markdown(
-            f'<div class="{role_class}"><b>{prefix}:</b> {msg["content"]}</div>',
-            unsafe_allow_html=True
-        )
-
+        if msg["role"] == "user":
+            st.markdown(
+                f'<div class="chat-user"><b>You:</b> {msg["content"]}</div>',
+                unsafe_allow_html=True
+            )
+        else:
+            # We create a container to hold the text and button together
+            chat_col_text, chat_col_btn = st.columns([0.88, 0.12])
+            
+            with chat_col_text:
+                st.markdown(
+                    f'<div class="chat-bot"><b>Bot:</b> {msg["content"]}</div>',
+                    unsafe_allow_html=True
+                )
+            
+            with chat_col_btn:
+                # Show the replay button only if voice reply is enabled
+                if st.session_state.voice_reply:
+                    # Unique key prevents Streamlit errors
+                    btn_key = f"replay_{hash(msg['content'])}"
+                    if st.button("🔈", key=btn_key, help="Replay this message"):
+                        audio_bytes, _ = tts_to_mp3_bytes(msg["content"])
+                        if audio_bytes:
+                            st.audio(audio_bytes, format="audio/mp3", autoplay=True)
     mode = st.session_state.chat_input_mode
     
 
     # 1) TEXT
     if mode == "text":
         user_input = st.chat_input("Type here…")
-    
+        
         if user_input:
             st.session_state.chat_started = True
-
-            # First append user message
             st.session_state.chat_history.append({"role": "user", "content": user_input})
+        
+            # Prepare context for the chatbot
+            # If last_ser (Audio) exists, use that, else use text-based emotion
+            current_ctx = ctx 
 
-            history_for_llm = [
-                {"role": m["role"], "content": m["content"]}
-                for m in st.session_state.chat_history
-            ]
-
-            response, _used_llm = chat(
-                user_input,
-                ctx,
-                history_for_llm,
-                st.session_state.ollama_model
+            # CALL GROQ VIA CHATBOT
+            with st.spinner("I am thinking..."):
+                response, used_llm = chat(
+                    user_input,
+                    current_ctx,
+                    st.session_state.chat_history,
+                    None # Model name no longer needed for Ollama
             )
-
-            # Get text emotion
-            detected_emotion, detected_intensity = get_detected_text_emotion()
-            ctx["emotion"] = detected_emotion
-            ctx["intensity"] = detected_intensity
-
-            # Update sidebar
-            suggestions = get_suggestions(
-                detected_emotion,
-                detected_intensity,
-                "stable"
-            )
-
-            songs = get_song_recos(detected_emotion) # Get songs for text mode too
-
-            st.session_state.last_ser = {
-                "emotion": detected_emotion,
-                "intensity": detected_intensity,
-                "songs": songs,
-                "timeline_fig": None,
-                "summary": {},
-                "suggestions": suggestions,
+        
+        
+            if not st.session_state.last_ser:
+                det_emo, det_inten = get_detected_text_emotion()
+                st.session_state.last_ser = {
+                    "emotion": det_emo,
+                    "intensity": det_inten,
+                    "suggestions": get_suggestions(det_emo, det_inten, "stable"),
+                    "songs": get_song_recos(det_emo)
             }
-
-            # Songs (only once)
-            if (
-                not st.session_state.songs_shown
-                and detected_emotion not in ["Neutral", "Calm"]
-            ):
-                song_text = "\n".join([f"🎵 [{t}]({l})" for t, l in songs])
-                response += "\n\nOkay okay — mood playlist time 😌:\n" + song_text
-                st.session_state.songs_shown = True
-
-            # ✅ ALWAYS append bot reply
-            st.session_state.chat_history.append({
-                "role": "assistant",
-                "content": response
-            })
-
-            if st.session_state.voice_reply:
-                maybe_speak_text(response)
-                play_bot_voice(response)
-
+            
+            # Append bot reply
+            st.session_state.chat_history.append({"role": "assistant", "content": response})
             st.rerun()
 
-    # 2) MIC VOICE
+            if st.session_state.voice_reply:
+                # Generate the audio bytes using the gTTS helper
+                audio_bytes, err = tts_to_mp3_bytes(response)
+                
+                if not err:
+                    st.session_state.last_audio = audio_bytes
+                else:
+                    st.error(f"Voice generation failed: {err}")
+            
+
+    # 2) MIC VOICE (Inside tab_chat)
     elif mode == "mic":
-        st.markdown("Record a voice note, I’ll detect emotion from your audio 👇")
-        dur = st.slider("Recording duration (seconds)", 2, 15, 5, key="chat_mic_dur")
-
-        if st.button("🔴 Start recording", type="primary"):
+        
+        st.markdown("### 🎤 Voice Input (Record once)")
+        duration = st.slider("Recording duration (seconds)", 2, 10, 5)
+        
+        if st.button("🎤 Record Voice", use_container_width=True):
             st.session_state.chat_started = True
-
-            audio = record_audio(dur, SR)
-
+            
+            with st.spinner("Recording... Speak now 🎙️"):
+                audio = record_audio(duration, SR)
+                
+            # Save temp audio
             with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as tmp:
                 sf.write(tmp.name, audio, SR)
-                wav_path = tmp.name
-
-            st.audio(wav_path)
-
-            user_text = speech_to_text(wav_path)
-
-            if user_text:
+                audio_path = tmp.name
+            # Convert speech → text
+            user_text = speech_to_text(audio_path)
+            
+            if user_text and user_text.strip() != "":
+                user_text = user_text.strip()
+                
+                # Add to chat
                 st.session_state.chat_history.append({
                     "role": "user",
                     "content": f"🎤 {user_text}"
-                })
-            else:
+                    })
+                
+                # Chatbot response
+                with st.spinner("Thinking... 🤖"):
+                    response, _ = chat(
+                        user_text,
+                        ctx,
+                        st.session_state.chat_history
+                    )
+                
                 st.session_state.chat_history.append({
-                    "role": "user",
-                    "content": f"🎤 Voice message ({dur}s)"
+                    "role": "assistant",
+                    "content": response
                 })
+                st.rerun()
 
-            emotion, intensity, probs, pred_class = predict_emotion_from_audio(audio, SR, model, scaler)
+                # Voice reply
+                if st.session_state.voice_reply:
+                    audio_bytes, err = tts_to_mp3_bytes(response)
+                    if not err:
+                        st.session_state.last_audio = audio_bytes
+                    else:
+                        st.error(f"Voice generation failed: {err}")
+            else:
+                st.warning("Couldn't detect clear speech. Try again 🎧")
+             
 
-            timeline_results = analyze_timeline(
-                audio, SR, model,
-                lambda a, s: extract_features(a, s, feature_type=FEATURE_TYPE_FIXED),
-                scaler,
-                window_sec=1.0,
-                hop_sec=0.5
-            )
-            summary = get_timeline_summary(timeline_results)
-            suggestions = get_suggestions(emotion, intensity, summary.get("intensity_trend", "stable"))
 
-            fig = None
-            if timeline_results:
-                fig = safe_plot_timeline(timeline_results, overall_emotion=emotion)
-
-            songs = None
-            if not st.session_state.songs_shown:
-                songs = get_song_recos(emotion)
-                st.session_state.songs_shown = True
-
-            st.session_state.last_ser = {
-                "emotion": emotion,
-                "intensity": intensity,
-                "songs": songs,
-                "timeline_fig": fig,
-                "summary": summary,
-                "suggestions": suggestions
-            }
-
-            ctx = {
-                "emotion": emotion,
-                "intensity": intensity,
-                "duration": summary.get("duration", 0.0),
-                "trend": summary.get("intensity_trend", "stable"),
-                "top_emotions": ", ".join(list(summary.get("emotion_counts", {}).keys())[:3]) or "Neutral",
-                "language": "auto",
-            }
-
-            history_for_llm = [{"role": m["role"], "content": m["content"]} for m in st.session_state.chat_history]
-            user_text_proxy = user_text if user_text else f"I sent a voice message. Detected emotion: {emotion} ({intensity}%)."
-            response, _ = chat(user_text_proxy, ctx, history_for_llm, st.session_state.ollama_model)
-
-            if songs:
-                song_text = "\n".join([f"🎵 [{t}]({l})" for t, l in songs])
-                response += "\n\nMood playlist time 😌:\n" + song_text
-
-            st.session_state.chat_history.append({"role": "assistant", "content": response})
-
-            if st.session_state.voice_reply:
-                maybe_speak_text(response)
-                play_bot_voice(response)
-
-            st.rerun()
-
-    # 3) UPLOAD AUDIO
+    # 3) UPLOAD AUDIO 
     elif mode == "audio":
-        up = st.file_uploader("Upload audio (.wav/.mp3/.ogg/.flac/.m4a)", type=["wav", "mp3", "ogg", "flac", "m4a"])
+        up = st.file_uploader(
+        "Upload audio",
+        type=["wav", "mp3", "m4a"],
+        key="chat_upload"
+        )
+        
         if up:
-            st.session_state.chat_started = True
-            audio_bytes = up.read()
-            audio, _sr = load_audio_any(audio_bytes, sr=SR)
+            file_key = f"processed_{up.name}_{up.size}"
+            
+            if file_key not in st.session_state:
+                st.session_state.chat_started = True
+                
+                with st.spinner("🎧 Processing audio... please wait"):
+                    audio_bytes = up.read()
+                    audio, _sr = load_audio_any(audio_bytes, sr=SR)
+                    
+                    st.session_state.chat_history.append({
+                        "role": "user",
+                        "content": f"📎 Uploaded audio: {up.name}"
+                    })
+                    
+                    # Emotion detection
+                    emotion, intensity, probs, pred_class = predict_emotion_from_audio(audio, SR, model, scaler)
 
-            st.session_state.chat_history.append({"role": "user", "content": f"📎 Uploaded audio: {up.name}"})
+                    timeline_results = analyze_timeline(
+                        audio,
+                        SR,
+                        model,
+                        lambda a, s: extract_features(a, s, feature_type=FEATURE_TYPE_FIXED),
+                        scaler
+                    )
 
-            emotion, intensity, probs, pred_class = predict_emotion_from_audio(audio, SR, model, scaler)
+                    summary = get_timeline_summary(timeline_results)
 
-            timeline_results = analyze_timeline(
-                audio, SR, model,
-                lambda a, s: extract_features(a, s, feature_type=FEATURE_TYPE_FIXED),
-                scaler,
-                window_sec=1.0,
-                hop_sec=0.5
-            )
-            summary = get_timeline_summary(timeline_results)
-            suggestions = get_suggestions(emotion, intensity, summary.get("intensity_trend", "stable"))
+                    # Update sidebar state
+                    st.session_state.last_ser = {
+                        "emotion": emotion,
+                        "intensity": intensity,
+                        "summary": summary,
+                        "suggestions": get_suggestions(emotion, intensity, "stable"),
+                        "songs": get_song_recos(emotion)
+                    }
 
-            fig = None
-            if timeline_results:
-                fig = safe_plot_timeline(timeline_results, overall_emotion=emotion)
+                    # Chat response
+                    user_text_proxy = f"I uploaded an audio file. Detected emotion: {emotion} ({intensity}%)."
 
-            songs = None
-            if not st.session_state.songs_shown:
-                songs = get_song_recos(emotion)
-                st.session_state.songs_shown = True
+                    response, _ = chat(
+                        user_text_proxy,
+                        st.session_state.last_ser,
+                        st.session_state.chat_history
+                    )
 
-            st.session_state.last_ser = {
-                "emotion": emotion,
-                "intensity": intensity,
-                "songs": songs,
-                "timeline_fig": fig,
-                "summary": summary,
-                "suggestions": suggestions
-            }
+                    st.session_state.chat_history.append({
+                        "role": "assistant",
+                        "content": response
+                    })
+                    st.rerun()
 
-            ctx = {
-                "emotion": emotion,
-                "intensity": intensity,
-                "duration": summary.get("duration", 0.0),
-                "trend": summary.get("intensity_trend", "stable"),
-                "top_emotions": ", ".join(list(summary.get("emotion_counts", {}).keys())[:3]) or "Neutral",
-                "language": "auto",
-            }
+                    # ✅ FIXED INDENTATION BUG HERE
+                    if st.session_state.voice_reply:
+                        audio_bytes, err = tts_to_mp3_bytes(response)
+                        if not err:
+                            st.session_state.last_audio = audio_bytes
+                        else:
+                            st.error(f"Voice generation failed: {err}")
 
-            history_for_llm = [{"role": m["role"], "content": m["content"]} for m in st.session_state.chat_history]
-            user_text_proxy = f"I uploaded an audio file. Detected emotion: {emotion} ({intensity}%)."
-            response, _ = chat(user_text_proxy, ctx, history_for_llm, st.session_state.ollama_model)
+                    # Mark as processed
+                    st.session_state[file_key] = True
 
-            if songs:
-                song_text = "\n".join([f"🎵 [{t}]({l})" for t, l in songs])
-                response += "\n\nMood playlist time 😌:\n" + song_text
-
-            st.session_state.chat_history.append({"role": "assistant", "content": response})
-
-            if st.session_state.voice_reply:
-                maybe_speak_text(response)
-                play_bot_voice(response)
-
-            st.rerun()
-
-
-    st.markdown('<div class="bottom-spacer"></div>', unsafe_allow_html=True)
 
     st.markdown("---")
     if st.button("🧹 Clear chat"):
@@ -778,16 +781,35 @@ with tab_analyzer:
 
     if "is_recording" not in st.session_state:
         st.session_state.is_recording = False
+    
+    # 1. Define the Tab Labels
+    analyzer_options = ["📂 Upload Audio", "🎤 Record Mic", "🎬 Upload Video", "🌐 From URL"]
 
-    tab_up, tab_mic, tab_vid, tab_url = st.tabs([
-        "📂 Upload Audio",
-        "🎤 Record Mic",
-        "🎬 Upload Video",
-        "🌐 From URL"
-    ])
+    # 2. Track the "Active Tab" in session state to detect a switch
+    if "active_analyzer_tab" not in st.session_state:
+        st.session_state.active_analyzer_tab = analyzer_options[0]
+
+    # 3. Use a Selectbox or Radio (Horizontal) instead of st.tabs for better control
+    # This acts as our "Switch" to clear the screen
+    choice = st.radio("Select Input Type", analyzer_options, horizontal=True, label_visibility="collapsed")
+
+    # 4. RESET LOGIC: If the user clicked a different option, wipe the previous results
+    if choice != st.session_state.active_analyzer_tab:
+        st.session_state.analyzer_result = None  # Clears the emotion output console
+        st.session_state.analyzer_audio = None   # Clears the loaded audio data
+        st.session_state.active_analyzer_tab = choice # Update to the new tab
+        st.rerun() # Refresh to show a clean page
+
+    # 5. Persist audio logic (keep this)
+    if "analyzer_audio" not in st.session_state:
+        st.session_state.analyzer_audio = None
+        st.session_state.analyzer_sr = SR
+
+    if "is_recording" not in st.session_state:
+        st.session_state.is_recording = False
 
     # ================= AUDIO UPLOAD =================
-    with tab_up:
+    if choice == "📂 Upload Audio":
         uploaded = st.file_uploader(
             "Upload audio",
             type=["wav","mp3","ogg","flac","m4a"],
@@ -805,36 +827,28 @@ with tab_analyzer:
             st.session_state.analyzer_sr = audio_sr
 
             st.audio(path)
+            pass
 
     # ================= MIC =================
-    with tab_mic:
+    elif choice == "🎤 Record Mic":
         dur = st.slider("Recording duration", 2, 15, 5, key="an_mic_dur")
 
-        if not st.session_state.is_recording:
-            if st.button("🎤 Start Recording"):
-                st.session_state.is_recording = True
-                st.rerun()
-
-        else:
-            st.warning("🔴 Recording in progress...")
-
-            audio_data = record_audio(dur, SR)
-
-            st.session_state.analyzer_audio = audio_data
-            st.session_state.analyzer_sr = SR
-
-            st.session_state.is_recording = False
-
-            with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as tmp:
-                sf.write(tmp.name, audio_data, SR)
-                st.audio(tmp.name)
-
-            st.success("Recording complete!")
+        if st.button("🎤 Start Recording"):
+            with st.spinner("Recording..."):
+                audio_data = record_audio(dur, SR)
+                st.session_state.analyzer_audio = audio_data
+                st.session_state.analyzer_sr = SR
+                
+                with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as tmp:
+                    sf.write(tmp.name, audio_data, SR)
+                    st.audio(tmp.name)
+                    
+                st.success("Recording complete!")
 
     # ================= VIDEO =================
-    with tab_vid:
-        vid = st.file_uploader("Upload video", type=["mp4","mkv","mov"])
-
+    elif choice == "🎬 Upload Video":
+        vid = st.file_uploader("Upload video", type=["mp4","mkv","mov"], key="an_vid")
+        
         if vid:
             with tempfile.NamedTemporaryFile(delete=False, suffix=".mp4") as tmp:
                 tmp.write(vid.read())
@@ -844,29 +858,37 @@ with tab_analyzer:
 
             if err:
                 st.error(err)
-            else:
+            elif wav_path is not None:
                 audio_data, audio_sr = librosa.load(wav_path, sr=SR, duration=10.0)
-
+                
                 st.session_state.analyzer_audio = audio_data
                 st.session_state.analyzer_sr = audio_sr
-
+                
+                st.audio(wav_path)
                 st.success("Audio extracted from video!")
+            else:
+                st.error("Failed to extract audio.")
 
     # ================= URL =================
-    with tab_url:
+    elif choice == "🌐 From URL":
         url = st.text_input("🔗 Enter YouTube / audio URL")
-
-        if st.button("Fetch from URL", key="fetch_url"):
-            if url:
+        
+        if st.button("Fetch from URL"):
+            if url.strip() != "":
                 with st.spinner("Downloading audio... 🎧"):
                     audio_data, audio_sr, err = load_audio_from_url(url)
-
-                if err:
-                    st.error(err)
-                else:
-                    st.session_state.analyzer_audio = audio_data
-                    st.session_state.analyzer_sr = audio_sr
-                    st.success("Audio loaded from URL!")
+                    
+                    if err:
+                        st.error(err)
+                        
+                    elif audio_data is not None:
+                        st.session_state.analyzer_audio = audio_data
+                        st.session_state.analyzer_sr = audio_sr
+                        st.success("Audio loaded from URL!")
+                    else:
+                        st.error("Failed to load audio from URL.")
+            else:
+                st.warning("Please enter a valid URL")
 
     # ================= ANALYZE =================
     if st.session_state.analyzer_audio is not None:
@@ -926,25 +948,34 @@ with tab_analyzer:
             st.success("Analysis complete!")
 
     # ================= DISPLAY =================
-    if "analyzer_result" in st.session_state:
+    if "analyzer_result" in st.session_state and st.session_state.analyzer_result is not None:
+        
         result = st.session_state.analyzer_result
+        
+        # Extra safety check (prevents crash 100%)
+        if isinstance(result, dict) and "emotion" in result and "intensity" in result:
+            
+            st.markdown("## 🎭 Detected Emotion")
+            st.success(f"{result['emotion']} ({result['intensity']}%)")
 
-        st.markdown("## 🎭 Detected Emotion")
-        st.success(f"{result['emotion']} ({result['intensity']}%)")
+            # GRAPH
+            if result.get("fig") is not None:
+                st.markdown("### 📊 Emotion Timeline")
+                st.plotly_chart(result["fig"], use_container_width=True)
 
-        # ✅ GRAPH (THIS WAS MISSING)
-        if result.get("fig") is not None:
-            st.markdown("### 📊 Emotion Timeline")
-            st.plotly_chart(result["fig"], use_container_width=True)
+            # Suggestions
+            if result.get("suggestions"):
+                st.markdown("### 💡 Suggestions")
+                for tip in result["suggestions"]:
+                    st.write(f"- {tip}")
 
-        # Suggestions
-        if result["suggestions"]:
-            st.markdown("### 💡 Suggestions")
-            for tip in result["suggestions"]:
-                st.write(f"- {tip}")
+            # Songs
+            if result.get("songs"):
+                st.markdown("### 🎵 Song Recommendations")
+                for title, link in result["songs"]:
+                    st.markdown(f"- [{title}]({link})")
 
-        # Songs
-        if result["songs"]:
-            st.markdown("### 🎵 Song Recommendations")
-            for title, link in result["songs"]:
-                st.markdown(f"- [{title}]({link})")
+        else:
+            st.warning("⚠️ Analysis not completed properly. Please try again.")
+
+    
