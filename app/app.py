@@ -25,6 +25,13 @@ import librosa
 import sounddevice as sd
 import soundfile as sf
 import tensorflow as tf
+import keras
+import sys
+print("="*50)
+print("PYTHON:", sys.executable)
+print("TF VERSION:", tf.__version__)
+print("TF LOCATION:", tf.__file__)
+print("="*50)
 from faster_whisper import WhisperModel
 import moviepy as mp 
 
@@ -164,7 +171,18 @@ st.markdown("""
 def load_ser_model():
     if not os.path.exists(MODEL_PATH):
         return None
-    return tf.keras.models.load_model(MODEL_PATH)
+
+    try:
+        model = keras.models.load_model(
+            MODEL_PATH,
+            compile=False,
+            safe_mode=False   # IMPORTANT FIX
+        )
+        return model
+
+    except Exception as e:
+        print("ERROR:", e)
+        raise e
 
 @st.cache_resource
 def load_scaler():
